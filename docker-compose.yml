@@ -1,0 +1,23 @@
+services:
+  duty-bot:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-duty-bot
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Moscow
+      - PYTHONUNBUFFERED=1
+      - CONTAINER_NAME=telegram-duty-bot
+      - RUNNING_IN_DOCKER=true
+    # Явно указываем файл с переменными
+    env_file:
+      - .env
+    volumes:
+      - ./service_account.json:/app/service_account.json:ro
+      - /tmp:/tmp
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

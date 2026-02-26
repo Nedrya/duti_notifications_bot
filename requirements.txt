@@ -1,0 +1,49 @@
+# Telegram bot
+python-telegram-bot[job-queue]==22.6
+
+# Google Sheets
+gspread==6.2.1
+google-auth==2.48.0
+gspread-formatting==1.2.1
+
+# Timezone handling
+pytz==2025.2
+tzlocal==5.3.1
+
+# HTTP client (used by telegram bot)
+httpx==0.28.1
+httpcore==1.0.9
+h11==0.16.0
+certifi==2026.1.4
+
+# Environment variables
+python-dotenv==1.2.1
+
+# Cryptography (for Google auth)
+cryptography==46.0.5
+pycparser==3.0
+cffi==2.0.0
+
+# OAuth (for Google auth)
+oauthlib==3.3.1
+requests-oauthlib==2.0.0
+
+# Other dependencies
+requests==2.32.5
+urllib3==2.6.3
+idna==3.11
+charset-normalizer==3.4.4
+typing_extensions==4.15.0
+
+# PyASN1 (for Google auth)
+pyasn1==0.6.2
+pyasn1_modules==0.4.2
+
+# RSA (for Google auth)
+rsa==4.9.1
+
+# APScheduler (used by telegram-bot job-queue)
+APScheduler==3.11.2
+
+# Asyncio support
+anyio==4.12.1
