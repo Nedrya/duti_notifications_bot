@@ -1,8 +1,14 @@
+#!/usr/bin/env python3
+"""
+Telegram bot for duty schedule notifications.
+"""
 import os
 import sys
 import logging
 import fcntl
 import atexit
+import socket
+import time
 from datetime import datetime, time
 import pytz
 from telegram import Update
@@ -22,48 +28,58 @@ logger = logging.getLogger(__name__)
 
 
 def check_single_instance():
-    """Prevent multiple bot instances with better Docker support."""
-    import socket
-
-    # Для Docker используем hostname как часть имени блокировки
+    """Prevent multiple bot instances with aggressive cleanup."""
     hostname = socket.gethostname()
-    lock_file = f'/tmp/telegram_duty_bot_{hostname}.lock'
+    token_hash = abs(hash(Config.TELEGRAM_TOKEN)) % 10000
+    lock_file = f'/tmp/telegram_duty_bot_{token_hash}_{hostname}.lock'
 
-    # Также проверяем переменные окружения
-    if os.environ.get('RUNNING_IN_DOCKER') == 'true':
-        logger.info(f"Running in Docker container: {hostname}")
+    logger.info(f"Attempting to acquire lock: {lock_file}")
+
+    # Clean up old lock files
+    try:
+        for f in os.listdir('/tmp'):
+            if f.startswith('telegram_duty_bot_'):
+                old_lock = os.path.join('/tmp', f)
+                try:
+                    # Remove locks older than 1 hour
+                    if time.time() - os.path.getmtime(old_lock) > 3600:
+                        os.unlink(old_lock)
+                        logger.info(f"Removed old lock: {old_lock}")
+                except:
+                    pass
+    except:
+        pass
 
     try:
         fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
 
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            logger.info("✓ Lock acquired")
         except (IOError, OSError, BlockingIOError):
-            # Проверяем, не завис ли старый процесс
+            # Lock exists - check if process is alive
             try:
                 with open(lock_file, 'r') as f:
-                    old_pid = f.read().strip()
-                # Проверяем, существует ли процесс с таким PID
+                    old_pid = int(f.read().strip())
+
                 try:
-                    os.kill(int(old_pid), 0)
-                    # Процесс существует
+                    os.kill(old_pid, 0)
                     logger.error(f"✗ Bot already running with PID: {old_pid}")
                     os.close(fd)
                     return False
                 except OSError:
-                    # Процесс не существует - удаляем старый lock файл
-                    logger.warning(f"Removing stale lock file from PID {old_pid}")
+                    # Process is dead - remove lock
+                    logger.warning(f"Removing stale lock from PID {old_pid}")
                     os.close(fd)
                     os.unlink(lock_file)
-                    # Пробуем снова
-                    fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    # Try again
+                    return check_single_instance()
             except:
                 os.close(fd)
                 return False
 
-        # Записываем PID и hostname
-        os.write(fd, f"{os.getpid()}:{hostname}".encode())
+        # Write current PID
+        os.write(fd, str(os.getpid()).encode())
         os.fsync(fd)
 
         def unlock():
@@ -72,13 +88,14 @@ def check_single_instance():
                 os.close(fd)
                 try:
                     os.unlink(lock_file)
+                    logger.info("Lock file removed")
                 except:
                     pass
             except:
                 pass
 
         atexit.register(unlock)
-        logger.info(f"✓ Single instance lock acquired (PID: {os.getpid()}, Host: {hostname})")
+        logger.info(f"✓ Single instance lock acquired (PID: {os.getpid()})")
         return True
 
     except Exception as e:
@@ -90,26 +107,31 @@ async def post_init(application: Application):
     """Log bot startup."""
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     mode = "TEST" if application.bot_data.get('test_mode', False) else "PRODUCTION"
-    logger.info(f"Bot started in {mode} mode at {now.strftime('%d.%m.%Y %H:%M:%S')} MSK")
+    logger.info(f"🚀 Bot started in {mode} mode at {now.strftime('%d.%m.%Y %H:%M:%S')} MSK")
 
     try:
         bot_info = await application.bot.get_me()
-        logger.info(f"Bot username: @{bot_info.username}")
+        logger.info(f"🤖 Bot username: @{bot_info.username}")
     except Exception as e:
         logger.error(f"Failed to get bot info: {e}")
 
 
 def main():
     """Start the bot."""
+    # Load configuration
+    try:
+        Config.validate()
+        logger.info("✅ Configuration loaded successfully")
+    except ValueError as e:
+        logger.error(f"❌ Configuration error: {e}")
+        sys.exit(1)
+
     # Check single instance
     if not check_single_instance():
+        logger.error("❌ Another instance is running. Exiting.")
         sys.exit(1)
 
     try:
-        # Load configuration
-        Config.validate()
-        logger.info("Configuration loaded successfully")
-
         # Setup timezone
         moscow_tz = pytz.timezone('Europe/Moscow')
 
@@ -138,58 +160,66 @@ def main():
             .post_init(post_init) \
             .build()
 
-        # Store test mode in bot_data for access in post_init
+        # Store test mode in bot_data
         app.bot_data['test_mode'] = Config.TEST_MODE
+        app.bot_data['notification_sent_today'] = False
 
         # Check job queue
         if app.job_queue is None:
-            logger.error("JobQueue not available. Install with: pip install 'python-telegram-bot[job-queue]'")
+            logger.error("❌ JobQueue not available")
             return
 
         # Add command handlers
         app.add_handler(CommandHandler("duty", handlers.cmd_duty))
         app.add_handler(CommandHandler("time", handlers.cmd_time))
         app.add_handler(CommandHandler("test", handlers.cmd_test))
+        app.add_handler(CommandHandler("chatid", handlers.cmd_chatid))
         app.add_handler(CommandHandler("status", handlers.cmd_status))
         app.add_handler(CommandHandler("test_on", handlers.cmd_test_on))
         app.add_handler(CommandHandler("test_off", handlers.cmd_test_off))
+        app.add_handler(CommandHandler("reset_rate", handlers.cmd_reset_rate_limit))
+        app.add_handler(CommandHandler("calendar", handlers.cmd_check_calendar))
+        app.add_handler(CommandHandler("test_api", handlers.cmd_test_api))
 
         # Setup jobs based on mode
         if Config.TEST_MODE:
+            # Test mode: every minute
             app.job_queue.run_once(
                 handlers.send_notification,
                 when=10,
-                name="test_notification"
+                name="test_once"
             )
             app.job_queue.run_repeating(
                 handlers.send_notification,
                 interval=60,
                 first=70,
-                name="test_notification"
+                name="test_repeating"
             )
-            logger.info("Test mode: notifications every minute")
+            logger.info("🔴 Test mode: notifications every minute")
         else:
+            # Production mode: daily at specified time
             notification_time = time(
                 hour=Config.NOTIFY_HOUR,
                 minute=Config.NOTIFY_MINUTE,
                 second=0,
                 tzinfo=moscow_tz
             )
+
             app.job_queue.run_daily(
                 handlers.send_notification,
                 time=notification_time,
                 days=tuple(range(7)),
-                name="daily_notification"
+                name="daily"
             )
-            logger.info(
-                f"Production mode: daily notifications at {Config.NOTIFY_HOUR:02d}:{Config.NOTIFY_MINUTE:02d} MSK")
+
+            logger.info(f"🟢 Production mode: daily at {Config.NOTIFY_HOUR:02d}:{Config.NOTIFY_MINUTE:02d} MSK")
 
         # Start bot
-        logger.info("Starting bot polling...")
+        logger.info("🔄 Starting bot polling...")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}", exc_info=True)
+        logger.error(f"❌ Failed to start bot: {e}", exc_info=True)
         raise
 
 

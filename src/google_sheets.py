@@ -1,3 +1,6 @@
+"""
+Google Sheets integration module.
+"""
 import os
 import logging
 from datetime import datetime
@@ -27,19 +30,26 @@ class GoogleSheetsClient:
 
     def connect(self):
         """Establish connection to Google Sheets."""
+        logger.info(f"Attempting to connect with credentials: {self.credentials_file}")
+        logger.info(f"File exists: {os.path.exists(self.credentials_file)}")
+
         if not os.path.exists(self.credentials_file):
             logger.error(f"Credentials file not found: {self.credentials_file}")
             return False
 
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
-            "https://www.googleapis.com/auth/drive.readonly",
-        ]
-
         try:
+            if os.path.getsize(self.credentials_file) == 0:
+                logger.error("Credentials file is empty")
+                return False
+
+            scopes = [
+                "https://www.googleapis.com/auth/spreadsheets.readonly",
+                "https://www.googleapis.com/auth/drive.readonly",
+            ]
+
             creds = Credentials.from_service_account_file(self.credentials_file, scopes=scopes)
             self.client = gspread.authorize(creds)
-            logger.info("Connected to Google Sheets")
+            logger.info("✅ Connected to Google Sheets successfully")
             return True
         except Exception as e:
             logger.error(f"Failed to connect to Google Sheets: {e}")
@@ -156,11 +166,10 @@ class GoogleSheetsClient:
 
         try:
             # Желтый цвет: красный и зеленый высокие, синий низкий
-            # Типичный желтый: R > 0.8, G > 0.8, B < 0.3
             is_yellow = (red > 0.6 and
                          green > 0.6 and
                          blue < 0.3 and
-                         abs(red - green) < 0.3)  # Красный и зеленый примерно равны
+                         abs(red - green) < 0.3)
 
             if is_yellow:
                 logger.debug(f"Yellow color detected (vacation): R={red:.2f}, G={green:.2f}, B={blue:.2f}")
@@ -214,7 +223,7 @@ class GoogleSheetsClient:
             # Collect leaders and followers
             leaders = []
             followers = []
-            vacation = []  # Для отладки, можно не использовать в ответе
+            vacation = []
 
             # Process each employee row
             for row_idx, row in enumerate(all_values[1:], start=2):
@@ -230,20 +239,20 @@ class GoogleSheetsClient:
                 cell_color = self.get_cell_color(worksheet, row_idx, date_col + 1)
 
                 if cell_color and self.is_colored(cell_color):
-                    # Проверяем на желтый цвет (отпуск) - игнорируем
+                    # Check for yellow (vacation) - ignore
                     if self.is_yellow_color(cell_color):
                         vacation.append(employee_name)
                         logger.info(f"🏖️ VACATION: {employee_name} (ignored)")
-                    # Проверяем на зеленый (ведущий)
+                    # Check for green (leader)
                     elif self.is_green_color(cell_color):
                         leaders.append(employee_name)
                         logger.info(f"✅ LEADER: {employee_name}")
-                    # Остальные цвета - ведомые
+                    # Other colors - followers
                     else:
                         followers.append(employee_name)
                         logger.info(f"📌 FOLLOWER: {employee_name}")
                 else:
-                    # Fallback to text content (если нет цвета, но есть текст)
+                    # Fallback to text content
                     cell_value = row[date_col].strip() if len(row) > date_col else ""
                     if cell_value:
                         followers.append(employee_name)
@@ -267,10 +276,6 @@ class GoogleSheetsClient:
                 followers_list = "\n".join([f"• {name}" for name in followers])
                 follower_word = "Ведомый" if len(followers) == 1 else "Ведомые"
                 message_parts.append(f"👥 <b>{follower_word}:</b>\n{followers_list}")
-
-            # Опционально: добавить информацию об отпуске
-            if vacation and logger.isEnabledFor(logging.DEBUG):
-                message_parts.append(f"🏖️ <i>В отпуске: {', '.join(vacation)}</i>")
 
             return "\n\n".join(message_parts)
 

@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   duty-bot:
     build: 
@@ -10,14 +12,24 @@ services:
       - PYTHONUNBUFFERED=1
       - CONTAINER_NAME=telegram-duty-bot
       - RUNNING_IN_DOCKER=true
-    # Явно указываем файл с переменными
     env_file:
       - .env
     volumes:
+      # Mount Google credentials
       - ./service_account.json:/app/service_account.json:ro
+      # Mount lock file directory
       - /tmp:/tmp
+      # Sync time with host
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('https://api.telegram.org/bot${TELEGRAM_TOKEN}/getMe', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

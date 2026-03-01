@@ -1,3 +1,6 @@
+"""
+Configuration module for loading environment variables.
+"""
 import os
 import logging
 from pathlib import Path
@@ -20,7 +23,7 @@ class Config:
 
     # Google Sheets
     SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
-    GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'service_account.json')
+    GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', '/app/service_account.json')
 
     # Notification time (MSK)
     NOTIFY_HOUR = int(os.getenv('NOTIFY_HOUR', '10'))
@@ -28,6 +31,8 @@ class Config:
 
     # Test mode
     TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
+
+    SPREADSHEET_URL = os.getenv('SPREADSHEET_URL', '')
 
     @classmethod
     def validate(cls):
@@ -50,7 +55,7 @@ class Config:
         except (ValueError, TypeError):
             raise ValueError(f"GROUP_CHAT_ID must be an integer, got {cls.GROUP_CHAT_ID}")
 
-        # Check if credentials file exists
+        # Check if credentials file exists (warning only)
         if not os.path.exists(cls.GOOGLE_CREDENTIALS_FILE):
             logger.warning(f"Google credentials file not found: {cls.GOOGLE_CREDENTIALS_FILE}")
 
