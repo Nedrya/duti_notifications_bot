@@ -22,6 +22,10 @@ services:
       # Sync time with host
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+      # Mount logs directory (опционально)
+      - ./logs:/app/logs
+      # Mount source code for development (чтобы можно было редактировать)
+      - ./src:/app/src
     logging:
       driver: "json-file"
       options:
@@ -33,3 +37,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    # Добавляем возможность заходить в контейнер
+    stdin_open: true
+    tty: true

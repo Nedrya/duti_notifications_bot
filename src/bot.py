@@ -197,12 +197,10 @@ def main():
             )
             logger.info("🔴 Test mode: notifications every minute")
         else:
-            # Production mode: daily at specified time
             notification_time = time(
                 hour=Config.NOTIFY_HOUR,
                 minute=Config.NOTIFY_MINUTE,
                 second=0,
-                tzinfo=moscow_tz
             )
 
             app.job_queue.run_daily(
